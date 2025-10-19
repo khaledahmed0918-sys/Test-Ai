@@ -40,6 +40,13 @@ for (const file of eventFiles) {
 	}
 }
 
+
+app.use(express.static(path.join(__dirname, "../dist")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../dist/index.html"));
+});
+
 // Log in to Discord with your client's token
 client.login(process.env.token);
 
