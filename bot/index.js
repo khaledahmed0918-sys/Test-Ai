@@ -39,3 +39,6 @@ for (const file of eventFiles) {
 
 // Log in to Discord with your client's token
 client.login(process.env.token);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Web server listening on port ${PORT}`));
