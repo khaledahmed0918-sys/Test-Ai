@@ -1,0 +1,16 @@
+{
+  "name": "discord-bot-backend",
+  "version": "1.0.0",
+  "description": "Discord bot backend for the web dashboard.",
+  "main": "bot/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node bot/index.js",
+    "deploy": "node bot/deploy-commands.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.25.0",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  }
+}

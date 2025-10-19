@@ -1,0 +1,5 @@
+{
+  "name": "Discord Bot Dashboard",
+  "description": "A web dashboard for managing a Discord bot, inspired by ProBot. This React application provides a user-friendly interface to configure moderation, welcome messages, leveling systems, and an AI chat feature powered by Gemini. It includes analytics charts to monitor server activity.",
+  "requestFramePermissions": []
+}
