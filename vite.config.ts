@@ -8,7 +8,11 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        allowedHosts: bot-ghost-status-remover-by-glaceyt-2-wkaw.onrender.com,
+        allowedHosts: [
+      'bot-ghost-status-remover-by-glaceyt-2-wkaw.onrender.com',
+      '.onrender.com' // تسمح لأي دومين تابع لـ Render
+    ],
+
       },
       plugins: [react()],
       define: {
