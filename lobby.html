@@ -1,0 +1,300 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<meta charset="utf-8" />
+<title>3D Lobby — Prototype (mobile)</title>
+<style>
+  html,body { height:100%; margin:0; background:#111; font-family: Arial, sans-serif; -webkit-tap-highlight-color: transparent;}
+  #ui {
+    position: absolute; left:10px; right:10px; bottom:10px; display:flex; gap:8px; align-items:center; justify-content:space-between;
+    pointer-events: auto;
+  }
+  .panel { background: rgba(0,0,0,0.5); color:#fff; padding:8px; border-radius:8px; font-size:13px; display:flex; gap:8px; align-items:center;}
+  input, select, button { font-size:13px; padding:6px 8px; border-radius:6px; border: none; }
+  button { background:#fff; color:#000; font-weight:700; }
+  #canvas-wrap { position:fixed; inset:0; touch-action: none; }
+  .small { font-size:12px; opacity:0.9; }
+</style>
+</head>
+<body>
+  <div id="canvas-wrap"></div>
+
+  <div id="ui">
+    <div class="panel">
+      <label class="small">Outfit</label>
+      <select id="outfit">
+        <option value="military">Military (default)</option>
+        <option value="civilian">Civilian</option>
+        <option value="police">Police</option>
+      </select>
+      <label class="small">Name</label>
+      <input id="chName" placeholder="Character name" />
+      <button id="addBtn">Add Character</button>
+    </div>
+
+    <div class="panel">
+      <button id="exportBtn">Export GLB</button>
+      <div class="small" id="info">Chars: <span id="count">1</span></div>
+    </div>
+  </div>
+
+<script type="module">
+// Three.js + examples from jsDelivr
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/controls/OrbitControls.js';
+import { GLTFExporter } from 'https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/exporters/GLTFExporter.js';
+import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/loaders/DRACOLoader.js';
+
+const wrap = document.getElementById('canvas-wrap');
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setSize(window.innerWidth, window.innerHeight);
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xdfe9ff); // light sky  
+
+// CAMERA
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0.6, 1.6, 4.2);
+
+// LIGHTS
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.9);
+scene.add(hemi);
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+keyLight.position.set(4,6,2);
+scene.add(keyLight);
+
+// FLOOR
+const floorMat = new THREE.MeshStandardMaterial({ color:0xe7dfd8, roughness:0.9 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(14,10), floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.position.y = 0;
+scene.add(floor);
+
+// ROOM (walls + large window pane)
+const wallMat = new THREE.MeshStandardMaterial({ color:0xf6f2f0, roughness:0.95 });
+const backWall = new THREE.Mesh(new THREE.BoxGeometry(14,4,0.2), wallMat);
+backWall.position.set(0,2, -3.5); scene.add(backWall);
+
+// window holes (we fake by placing large glass with transparency)
+const glassMat = new THREE.MeshPhysicalMaterial({ color:0x9fcfff, metalness:0, roughness:0.2, transmission:0.6, opacity:0.9, transparent:true });
+const glass = new THREE.Mesh(new THREE.PlaneGeometry(12,2.8), glassMat);
+glass.position.set(0,2, -3.4); scene.add(glass);
+
+// COUCH (simplified shapes)
+function buildCouch(){
+  const group = new THREE.Group();
+  const seatMat = new THREE.MeshStandardMaterial({ color:0xf0e6e7, roughness:0.8 });
+  const cushionMat = new THREE.MeshStandardMaterial({ color:0xf2c7c7, roughness:0.85 });
+
+  const base = new THREE.Mesh(new THREE.BoxGeometry(6.2,0.6,1.2), seatMat);
+  base.position.set(0,0.35, -1.5);
+  group.add(base);
+
+  const back = new THREE.Mesh(new THREE.BoxGeometry(6.2,0.9,0.4), seatMat);
+  back.position.set(0,0.95, -1.05);
+  group.add(back);
+
+  // cushions
+  const c1 = new THREE.Mesh(new THREE.BoxGeometry(1.1,0.5,1.05), cushionMat);
+  c1.position.set(-1.4,0.6, -1.2); group.add(c1);
+  const c2 = c1.clone(); c2.position.set(1.4,0.6,-1.2); group.add(c2);
+
+  return group;
+}
+const couch = buildCouch(); scene.add(couch);
+
+// table on right small
+const tableMat = new THREE.MeshStandardMaterial({ color:0xb7d7c6, roughness:0.9 });
+const table = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.05, 32), tableMat);
+table.position.set(2.6,0.48,-1.2);
+scene.add(table);
+
+// helper: create a simple seated humanoid (boxes) with basic rig transforms for animations
+function createSeatedCharacter(options = {}) {
+  const { outfit = 'military', name = 'Player' } = options;
+  const root = new THREE.Group();
+  root.name = name;
+
+  // materials by outfit
+  const mats = {
+    military: new THREE.MeshStandardMaterial({ color:0x2f3b2e, roughness:0.7 }),
+    civilian: new THREE.MeshStandardMaterial({ color:0x6b6b6b, roughness:0.7 }),
+    police:   new THREE.MeshStandardMaterial({ color:0x111a45, roughness:0.6 })
+  };
+  const mat = mats[outfit] || mats['civilian'];
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe6c6a7, roughness:1.0 });
+
+  // torso
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.65,0.35), mat);
+  torso.position.set(0, 1.05, 0);
+  root.add(torso);
+
+  // head
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34,0.34,0.34), skin);
+  head.position.set(0, 1.4, 0.02); root.add(head);
+
+  // left arm
+  const lArm = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.45,0.14), mat);
+  lArm.position.set(-0.34,1.05,0);
+  root.add(lArm);
+  // right arm
+  const rArm = lArm.clone(); rArm.position.set(0.34,1.05,0); root.add(rArm);
+
+  // legs (bent for sitting)
+  const lLeg = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.45,0.17), mat);
+  lLeg.position.set(-0.18,0.73,0.12); root.add(lLeg);
+  const rLeg = lLeg.clone(); rLeg.position.set(0.18,0.73,0.12); root.add(rLeg);
+
+  // rotation pivots for simple animation
+  root.userData = {
+    head, lArm, rArm, lLeg, rLeg, torso
+  };
+
+  // position the group so character sits on couch
+  root.position.set(0,0, -1.2);
+
+  // slight seeding of offsets so multiple chars won't be identical
+  root.userData.offset = Math.random() * 10;
+
+  return root;
+}
+
+// initial single character (center)
+const mainChar = createSeatedCharacter({ outfit:'military', name:'majed mohammed' });
+mainChar.position.x = -0.5;
+scene.add(mainChar);
+
+// keep characters in an array for control
+const characters = [ mainChar ];
+document.getElementById('count').textContent = characters.length;
+
+// Simple animation system (no skeleton; we transform parts)
+const clock = new THREE.Clock();
+
+function animateCharacters(t){
+  const dt = clock.getDelta();
+  for (let c of characters){
+    const u = c.userData;
+    const tOff = (performance.now() / 1000 + (u.offset||0));
+
+    // breathing (scale torso slightly)
+    const b = 1 + Math.sin(tOff * 1.2) * 0.01;
+    u.torso.scale.y = b;
+
+    // head look small periodic
+    u.head.rotation.y = Math.sin(tOff * 0.6) * 0.15;
+
+    // leg swing small
+    const swing = Math.sin(tOff * 1.6) * 0.12;
+    u.lLeg.rotation.x = -0.4 + swing;
+    u.rLeg.rotation.x = -0.4 - swing;
+
+    // subtle arm move
+    u.lArm.rotation.x = Math.sin(tOff * 0.9) * 0.05;
+    u.rArm.rotation.x = Math.sin(tOff * 1.1) * 0.05;
+  }
+}
+
+// CAMERA auto pan (right <-> left)
+let panDir = 1;
+let panStart = performance.now();
+let panDuration = 8000; // 8s to travel one way
+const leftX = -0.9, rightX = 0.9;
+const camY = 1.6, camZ = 4.2;
+
+function updateCamera(){
+  const now = performance.now();
+  const local = ((now % (panDuration*2)) / (panDuration*2));
+  // local from 0..1 across full left-right-left cycle
+  let t = (now % (panDuration*2)) / panDuration;
+  if (t > 1) t = 2 - t; // ping-pong
+  // easeInOutQuad
+  const ease = (t<0.5) ? (2*t*t) : (-1 + (4 - 2*t)*t);
+  camera.position.x = leftX + (rightX - leftX) * ease;
+  camera.position.y = camY + Math.sin(now/3000)*0.02; // slight bob
+  camera.position.z = camZ;
+  camera.lookAt(0,1.1, -1.2);
+}
+
+// OrbitControls for touch (user can override pan)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enablePan = false;
+controls.enableDamping = true;
+controls.minDistance = 2.4;
+controls.maxDistance = 8;
+controls.target.set(0,1.1,-1.2);
+
+// animation loop
+function renderLoop(){
+  requestAnimationFrame(renderLoop);
+  animateCharacters();
+  updateCamera();
+  controls.update();
+  renderer.render(scene, camera);
+}
+renderLoop();
+
+// UI: add character
+document.getElementById('addBtn').addEventListener('click', ()=>{
+  const outfit = document.getElementById('outfit').value;
+  const name = document.getElementById('chName').value || ('char' + (characters.length+1));
+  // create and place to the right of existing
+  const ch = createSeatedCharacter({ outfit, name });
+  const offsetX = -0.5 + characters.length * 1.2;
+  ch.position.x = offsetX;
+  scene.add(ch);
+  characters.push(ch);
+  document.getElementById('count').textContent = characters.length;
+});
+
+// EXPORT GLB
+document.getElementById('exportBtn').addEventListener('click', async ()=>{
+  // prepare exporter
+  const exporter = new GLTFExporter();
+  const options = {
+    binary: true,
+    trs: false,
+    onlyVisible: true,
+    truncateDrawRange: true,
+    embedImages: true
+  };
+
+  // optionally strip UI nodes, etc. We'll export scene as-is (floor, couch, characters)
+  exporter.parse(scene, function(result){
+    if (result instanceof ArrayBuffer) {
+      saveArrayBuffer(result, 'lobby_scene.glb');
+    } else {
+      const output = JSON.stringify(result, null, 2);
+      saveString(output, 'scene.gltf');
+    }
+  }, options);
+});
+
+function saveString(text, filename){
+  const blob = new Blob([text], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+}
+
+function saveArrayBuffer(buffer, filename){
+  const blob = new Blob([buffer], { type: 'application/octet-stream' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+}
+
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+</script>
+</body>
+</html>
